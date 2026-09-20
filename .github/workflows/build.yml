@@ -1,0 +1,40 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test deps
+        run: pip install Flask requests pytest psycopg2-binary pyyaml
+
+      - name: Validate n8n workflow JSON
+        run: python3 n8n/validate_workflows.py n8n/workflows/leadqualifier.json n8n/workflows/leadqualifier-errors.json
+
+      - name: Run companion tests
+        env:
+          LEADQUALIFIER_TEST_DB: "1"
+          LLM_PROVIDER: stub
+        run: python -m pytest companion/tests/ -q
+
+      - name: Validate docker-compose.yml
+        run: python3 -c "import yaml; d=yaml.safe_load(open('docker-compose.yml')); assert set(d['services']) >= {'postgres','ollama','n8n','companion'}, d['services'].keys(); print('compose services OK:', sorted(d['services']))"
+
+      - name: Check required docs exist
+        run: |
+          test -f prompts/bant-rubric.md
+          test -f prompts/enrichment-prompt.md
+          test -f demo/60-second-demo-script.md
+          grep -q "EXCLUSIONS" README.md
+          grep -q "2am" README.md
+          echo "docs OK"

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LeadQualifier — approval</title>
+<style>body{font-family:system-ui,sans-serif;max-width:560px;margin:4rem auto;padding:0 1rem;color:#1a1a1a}
+.ok{background:#eef7ee;border:1px solid #bfe3bf;border-radius:10px;padding:1.5rem}
+.err{background:#fdeeee;border:1px solid #f3c1c1;border-radius:10px;padding:1.5rem}
+a{color:#111}</style></head>
+<body>
+{% if ok %}
+<div class="ok"><h2>Lead {{ decision }}d ✓</h2>
+<p><strong>{{ lead.name }}</strong> ({{ lead.email }}) — score {{ lead.score }}/100.</p>
+{% if decision == 'approve' %}
+<p>The pipeline is routing them to the nurture lane now.</p>
+{% else %}
+<p>They'll get the polite auto-decline. Nothing further needed.</p>
+{% endif %}
+{% if not n8n_ok %}<p><em>Note: n8n resume call failed — the decision is recorded and the lead is in the dead-letter queue for retry.</em></p>{% endif %}
+</div>
+{% else %}
+<div class="err"><h2>Can't process this link</h2><p>{{ message }}</p></div>
+{% endif %}
+<p><a href="/mock-slack">Back to the feed</a></p>
+</body></html>

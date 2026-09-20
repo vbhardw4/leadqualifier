@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LeadQualifier — notifications (mock Slack)</title>
+<style>
+body{font-family:system-ui,-apple-system,sans-serif;max-width:760px;margin:2rem auto;padding:0 1rem;color:#1a1a1a;background:#f4f4f5}
+h1{font-size:1.4rem}.sub{color:#666;margin-top:-.6rem}
+.msg{background:#fff;border-radius:10px;padding:1rem 1.2rem;margin:1rem 0;border-left:5px solid #888;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+.msg.hot{border-color:#d33}.msg.warm_gate{border-color:#e6a817}.msg.junk{border-color:#888}.msg.declined{border-color:#555}.msg.alert{border-color:#a00;background:#fff5f5}
+.meta{font-size:.78rem;color:#888;margin-bottom:.4rem}
+.title{font-weight:700;margin-bottom:.3rem}.body{white-space:pre-wrap;font-size:.95rem}
+.actions{margin-top:.7rem}.btn{display:inline-block;padding:.45rem 1rem;border-radius:7px;text-decoration:none;font-weight:600;font-size:.9rem;margin-right:.5rem}
+.approve{background:#137333;color:#fff}.reject{background:#fff;color:#a00;border:1px solid #e0a0a0}
+.tag{display:inline-block;font-size:.72rem;font-weight:700;padding:.15rem .5rem;border-radius:20px;background:#eee;margin-left:.5rem;text-transform:uppercase}
+</style></head>
+<body>
+<h1>#lead-alerts <span style="font-weight:400;font-size:.9rem">(mock Slack)</span></h1>
+<p class="sub">{% if slack_configured %}Also forwarding to your real Slack webhook.{% else %}No Slack webhook configured — set <code>SLACK_WEBHOOK_URL</code> to forward these live.{% endif %}
+· <a href="/dashboard">ops dashboard</a> · <a href="/">intake form</a></p>
+{% for n in notifications %}
+<div class="msg {{ n.kind }}">
+<div class="meta">{{ n.created_at }} {% if n.lead_name %}· {{ n.lead_name }}{% if n.lead_company %} ({{ n.lead_company }}){% endif %}{% endif %}</div>
+<div class="title">{{ n.title }}<span class="tag">{{ n.kind.replace('_',' ') }}</span></div>
+<div class="body">{{ n.body }}</div>
+{% if n.approve_url %}
+<div class="actions"><a class="btn approve" href="{{ n.approve_url }}">Approve → route</a><a class="btn reject" href="{{ n.reject_url }}">Reject → decline</a></div>
+{% endif %}
+</div>
+{% else %}
+<p>No notifications yet. <a href="/">Submit a lead</a> to watch the pipeline work.</p>
+{% endfor %}
+</body></html>

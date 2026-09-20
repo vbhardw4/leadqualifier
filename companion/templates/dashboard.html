@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LeadQualifier — ops dashboard</title>
+<style>
+body{font-family:system-ui,-apple-system,sans-serif;max-width:960px;margin:2rem auto;padding:0 1rem;color:#1a1a1a;background:#fafafa}
+h1{font-size:1.4rem}.sub{color:#666;margin-top:-.6rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin:1.2rem 0}
+.card{background:#fff;border:1px solid #e5e5e5;border-radius:10px;padding:1rem 1.2rem}
+.card .k{font-size:.75rem;color:#888;text-transform:uppercase;letter-spacing:.04em}
+.card .v{font-size:1.7rem;font-weight:700;margin-top:.2rem}
+table{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden;font-size:.9rem}
+th,td{text-align:left;padding:.6rem .8rem;border-bottom:1px solid #eee}
+th{background:#f4f4f5;font-size:.78rem;text-transform:uppercase;color:#666}
+.bar{height:10px;background:#e5e5e5;border-radius:5px;overflow:hidden;margin-top:.3rem}
+.bar>div{height:100%;background:#111}
+h2{font-size:1.05rem;margin:1.8rem 0 .6rem}
+.note{font-size:.82rem;color:#777;background:#fff;border:1px dashed #ccc;border-radius:8px;padding:.8rem 1rem;margin-top:1rem}
+a{color:#111}
+</style></head>
+<body>
+<h1>Ops dashboard</h1>
+<p class="sub"><a href="/mock-slack">mock Slack</a> · <a href="/">intake form</a> · <a href="/api/metrics">JSON</a></p>
+<div class="grid">
+<div class="card"><div class="k">Leads in</div><div class="v">{{ m.total_leads }}</div></div>
+<div class="card"><div class="k">Median time to route</div><div class="v">{% if m.median_seconds_to_route is not none %}{{ m.median_seconds_to_route }}s{% else %}—{% endif %}</div></div>
+<div class="card"><div class="k">Hot (≥70)</div><div class="v">{{ m.by_band.get('hot',0) }}</div></div>
+<div class="card"><div class="k">Warm gated (50–69)</div><div class="v">{{ m.by_band.get('warm',0) }}</div></div>
+<div class="card"><div class="k">Junk (&lt;50)</div><div class="v">{{ m.by_band.get('junk',0) }}</div></div>
+<div class="card"><div class="k">Open dead-letter items</div><div class="v">{{ m.dlq_open }}</div></div>
+</div>
+<h2>Score distribution</h2>
+<table><tr><th>Bucket</th><th>Count</th><th></th></tr>
+{% for bucket,count in m.score_histogram.items() %}
+<tr><td>{{ bucket }}</td><td>{{ count }}</td><td style="width:40%"><div class="bar"><div style="width:{{ (count / (m.total_leads or 1) * 100)|round(1) }}%"></div></div></td></tr>
+{% endfor %}</table>
+<h2>Conversion by score band</h2>
+{% if m.conversion_by_band %}
+<table><tr><th>Band</th><th>Won</th><th>Lost</th><th>Win rate</th></tr>
+{% for band,oc in m.conversion_by_band.items() %}
+{% set won = oc.get('won',0) %}{% set lost = oc.get('lost',0) %}{% set tot = won+lost %}
+<tr><td>{{ band }}</td><td>{{ won }}</td><td>{{ lost }}</td><td>{{ ((won/tot*100)|round(1) if tot else 0) }}%</td></tr>
+{% endfor %}</table>
+{% else %}
+<p class="note">No outcomes recorded yet. Outcomes are recorded when a rep marks a lead
+<strong>won/lost</strong> (<code>POST /api/outcome</code>) — the band-vs-reality check is
+what proves the rubric works over time.</p>
+{% endif %}
+<h2>Latest notifications</h2>
+<table><tr><th>When</th><th>Type</th><th>Title</th></tr>
+{% for n in notifications %}<tr><td>{{ n.created_at }}</td><td>{{ n.kind }}</td><td>{{ n.title }}</td></tr>{% endfor %}</table>
+<div class="note">All figures above are live from this demo's database. Sample seed leads
+({{ m.sample_leads }}) are excluded from every number on this page.</div>
+</body></html>

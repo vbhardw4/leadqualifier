@@ -1,0 +1,131 @@
+# LeadQualifier demo stack.
+#
+# Start:   cp .env.example .env   (then edit secrets)
+#          docker compose up -d --build
+#          ./scripts/import-workflows.sh
+#          docker compose exec companion python seed_sample.py   # optional sample data
+# Open:    http://localhost:5000/          (intake form)
+#          http://localhost:5000/mock-slack (notification feed)
+#          http://localhost:5000/dashboard  (ops dashboard)
+#          http://localhost:5678/          (n8n editor — admin / N8N_PASSWORD)
+#
+# The live demo costs $0: scoring runs on the local Ollama model.
+# For client deployments, set LLM_PROVIDER=openai|anthropic + API key instead.
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: leadqualifier-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-leadqualifier}
+      POSTGRES_USER: ${POSTGRES_USER:-leadqualifier}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    ports:
+      - "5432:5432"
+    volumes:
+      - lq-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-leadqualifier}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: leadqualifier-ollama
+    volumes:
+      - lq-ollama:/root/.ollama
+    # CPU inference is fine for the demo; add `deploy.resources.reservations.devices`
+    # for GPU hosts.
+
+  ollama-setup:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_started
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    # Pull once; skips quickly if the model already exists.
+    command: ["ollama pull ${SCORING_MODEL:-llama3.2:3b}"]
+
+  companion:
+    build: ./companion
+    container_name: leadqualifier-companion
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama-setup:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-leadqualifier}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-leadqualifier}
+      N8N_INTAKE_URL: http://n8n:5678/webhook/lead-intake
+      N8N_DECISION_URL: http://n8n:5678/webhook/approval-decision
+      OLLAMA_URL: http://ollama:11434
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      SCORING_MODEL: ${SCORING_MODEL:-llama3.2:3b}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-3-5-haiku-20241022}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:5000}
+      APPROVAL_SECRET: ${APPROVAL_SECRET:?set APPROVAL_SECRET in .env}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+    ports:
+      - "5000:5000"
+
+  n8n:
+    image: n8nio/n8n:2.40.3
+    container_name: leadqualifier-n8n
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: ${N8N_USER:-admin}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_PASSWORD:?set N8N_PASSWORD in .env}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?set N8N_ENCRYPTION_KEY in .env}
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ${N8N_DB:-n8n}
+      DB_POSTGRESDB_USER: ${POSTGRES_USER:-leadqualifier}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+      EXECUTIONS_DATA_SAVE_ON_SUCCESS: all
+      EXECUTIONS_DATA_SAVE_ON_ERROR: all
+      WEBHOOK_URL: ${N8N_WEBHOOK_URL:-}
+    ports:
+      - "5678:5678"
+    volumes:
+      - lq-n8n:/home/node/.n8n
+
+  # One-shot: import the versioned workflow JSON into n8n with stable IDs.
+  # Re-running is safe to skip if the workflows already exist (import creates a
+  # copy — delete the old one in the n8n UI first if re-importing).
+  n8n-import:
+    image: n8nio/n8n:2.40.3
+    depends_on:
+      n8n:
+        condition: service_started
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ${N8N_DB:-n8n}
+      DB_POSTGRESDB_USER: ${POSTGRES_USER:-leadqualifier}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?set N8N_ENCRYPTION_KEY in .env}
+    volumes:
+      - ./n8n/workflows:/workflows:ro
+      - lq-n8n:/home/node/.n8n
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        sleep 15
+        n8n import:workflow --input=/workflows/leadqualifier-errors.json --id=c97ca211-736d-463f-9d3d-d20df97f7db0
+        n8n import:workflow --input=/workflows/leadqualifier.json --id=ae2e6ae0-f547-4637-9770-72646cf4adaa
+
+volumes:
+  lq-pgdata:
+  lq-ollama:
+  lq-n8n:

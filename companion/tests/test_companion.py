@@ -212,3 +212,72 @@ def test_pages_render(client):
     c, _ = client
     for path in ("/", "/thank-you", "/mock-slack", "/dashboard", "/health"):
         assert c.get(path).status_code == 200, path
+
+
+# ---- scoring (gemini provider, mocked HTTP) ----
+
+_GEMINI_SCORE_BODY = {
+    "candidates": [{
+        "content": {"parts": [{"text": (
+            '{"score": 82, "rationale": "CTO with $8k budget and ASAP timeline.", '
+            '"dimensions": {"budget": 20, "authority": 22, "need": 20, "timeline": 20}}'
+        )}]},
+    }],
+}
+
+_GEMINI_ENRICH_BODY = {
+    "candidates": [{
+        "content": {"parts": [{"text": (
+            '{"company_name": "Acme Dental", "industry": "healthcare", '
+            '"size_bucket": "11-50", "confidence": 0.9, '
+            '"basis": "lead said \\"our dental clinic\\""}'
+        )}]},
+    }],
+}
+
+
+def _fake_gemini_post(url, **kwargs):
+    assert "generativelanguage.googleapis.com" in url
+    assert kwargs["headers"]["x-goog-api-key"] == "test-key"
+    body = kwargs["json"]
+    assert body["generationConfig"]["responseMimeType"] == "application/json"
+    assert "responseSchema" in body["generationConfig"]
+    class R:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return _fake_gemini_post.payload
+    return R()
+
+
+def test_gemini_scoring_path_mocked(monkeypatch):
+    monkeypatch.setattr("requests.post", _fake_gemini_post)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    _fake_gemini_post.payload = _GEMINI_SCORE_BODY
+    lead = {"name": "Jane", "email": "j@acmedental.com", "role": "CTO",
+            "budget_range": "$8k", "timeline": "ASAP",
+            "message": "our dental clinic needs automation now"}
+    r = scoring.score_lead(lead, provider="gemini")
+    assert r["score"] == 82 and r["band"] == "hot"
+    assert r["rationale"].startswith("CTO")
+    assert set(r["dimensions"]) == {"budget", "authority", "need", "timeline"}
+
+
+def test_gemini_enrichment_path_mocked(monkeypatch):
+    monkeypatch.setattr("requests.post", _fake_gemini_post)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    _fake_gemini_post.payload = _GEMINI_ENRICH_BODY
+    r = scoring.llm_infer_enrichment("I run our dental clinic in Brampton", provider="gemini")
+    assert r["company_name"] == "Acme Dental"
+    assert r["source"] == "llm_inference"
+    # low-confidence fallback: model said 0.9, must be capped at 0.6
+    assert r["confidence"] == pytest.approx(0.6)
+
+
+def test_gemini_missing_key_fails_fast(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    with pytest.raises(KeyError):
+        scoring.score_lead({"name": "X"}, provider="gemini")

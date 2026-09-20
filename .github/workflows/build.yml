@@ -28,7 +28,7 @@ jobs:
         run: python -m pytest companion/tests/ -q
 
       - name: Validate docker-compose.yml
-        run: python3 -c "import yaml; d=yaml.safe_load(open('docker-compose.yml')); assert set(d['services']) >= {'postgres','ollama','n8n','companion'}, d['services'].keys(); print('compose services OK:', sorted(d['services']))"
+        run: python3 -c "import yaml; d=yaml.safe_load(open('docker-compose.yml')); assert set(d['services']) >= {'postgres','n8n','companion'}, d['services'].keys(); assert 'ollama' not in d['services'], 'ollama must be removed'; print('compose services OK:', sorted(d['services']))"
 
       - name: Check required docs exist
         run: |

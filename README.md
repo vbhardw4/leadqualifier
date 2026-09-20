@@ -40,12 +40,12 @@ demos that never survive contact with production.
                              │ HTTP (companion APIs)
               ┌──────────────┼──────────────┐
               ▼              ▼              ▼
-       ┌────────────┐ ┌────────────┐ ┌─────────────┐
-       │ Postgres   │ │ Ollama     │ │ Slack       │
-       │ leads,     │ │ llama3.2:3b│ │ incoming    │
-       │ events,    │ │ scoring +  │ │ webhook     │
-       │ DLQ, notes │ │ enrichment │ │ (optional)  │
-       └────────────┘ └────────────┘ └─────────────┘
+       ┌────────────┐ ┌──────────────┐ ┌─────────────┐
+       │ Postgres   │ │ Gemini API   │ │ Slack       │
+       │ leads,     │ │ (free tier)  │ │ incoming    │
+       │ events,    │ │ scoring +    │ │ webhook     │
+       │ DLQ, notes │ │ enrichment   │ │ (optional)  │
+       └────────────┘ └──────────────┘ └─────────────┘
 ```
 
 **Design choice worth knowing:** the n8n workflow uses only Webhook, Code, IF, and
@@ -95,8 +95,9 @@ Open:
 | http://localhost:5000/dashboard | Ops dashboard: volume, median time-to-route, score distribution, conversion by band |
 | http://localhost:5678/ | n8n editor (login: `N8N_USER` / `N8N_PASSWORD`) — activate both workflows |
 
-The first `ollama-setup` run pulls `llama3.2:3b` (~2 GB, one time). The live demo
-costs **$0** — scoring runs on the local model.
+The live demo costs **$0** — scoring runs on the Gemini free-tier API
+(set `GEMINI_API_KEY` in `.env`; get a free key at aistudio.google.com, no card needed).
+`LLM_PROVIDER=ollama` remains available for self-hosted setups.
 
 ## The scoring rubric (transparency sells)
 
@@ -216,11 +217,11 @@ script. Recorded by Vishal; nobody else records demos for this portfolio.
 ## Project structure
 
 ```
-├── docker-compose.yml      # n8n + postgres + ollama + companion
+├── docker-compose.yml      # n8n + postgres + companion (Gemini API)
 ├── .env.example
 ├── companion/              # Flask service: intake UI, enrich, score, notify,
 │   ├── app.py              #   approval gate, dashboard, metrics
-│   ├── scoring.py          #   LLM provider routing (ollama/openai/anthropic/stub)
+│   ├── scoring.py          #   LLM provider routing (gemini/ollama/openai/anthropic/stub)
 │   ├── enrich.py           #   mock directory + LLM-inference fallback
 │   ├── store.py            #   Postgres data layer (SQLite in tests)
 │   ├── seed_sample.py      #   clearly-labeled sample leads (is_sample=1)

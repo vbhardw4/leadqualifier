@@ -2,7 +2,9 @@
 
 LLM_PROVIDER selects the backend:
   stub      — deterministic keyword-based scorer. Used by tests and CI; costs $0.
-  ollama    — local model via Ollama (default for the live demo; costs $0).
+  gemini    — Google Gemini free-tier API (default for the live demo; costs $0,
+              key in GEMINI_API_KEY).
+  ollama    — local model via Ollama (self-hosted option; costs $0).
   openai    — OpenAI chat completions (client deployments; client pays their key).
   anthropic — Anthropic messages API (client deployments; client pays their key).
 
@@ -102,6 +104,69 @@ def _call_anthropic(prompt, api_key, model):
                    r.json()["content"] if b.get("type") == "text")
 
 
+GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
+
+# JSON Schemas sent as Gemini `responseSchema` so the model returns strict JSON.
+# `_extract_json` stays as a safety net for non-conforming replies.
+_SCORING_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "score": {"type": "integer", "description": "Total BANT score 0-100"},
+        "rationale": {"type": "string",
+                      "description": "One sentence, plain language, "
+                                     "citing what the lead actually said"},
+        "dimensions": {
+            "type": "object",
+            "properties": {
+                "budget": {"type": "integer"},
+                "authority": {"type": "integer"},
+                "need": {"type": "integer"},
+                "timeline": {"type": "integer"},
+            },
+            "required": ["budget", "authority", "need", "timeline"],
+        },
+    },
+    "required": ["score", "rationale", "dimensions"],
+}
+
+_ENRICHMENT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "company_name": {"type": "string"},
+        "industry": {"type": "string"},
+        "size_bucket": {"type": "string",
+                        "enum": ["1-10", "11-50", "51-200", "201-1000",
+                                 "1000+", "unknown"]},
+        "confidence": {"type": "number"},
+        "basis": {"type": "string",
+                  "description": "Short phrase quoting the text that "
+                                 "supports the inference"},
+    },
+    "required": ["company_name", "industry", "size_bucket", "confidence", "basis"],
+}
+
+
+def _call_gemini(prompt, api_key, model, schema):
+    r = requests.post(
+        f"{GEMINI_API_BASE}/models/{model}:generateContent",
+        headers={"x-goog-api-key": api_key},
+        json={
+            "system_instruction": {"parts": [{"text":
+                "You are a B2B lead-qualification analyst. "
+                "Reply with ONLY the JSON object."}]},
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": 0.2,
+                "responseMimeType": "application/json",
+                "responseSchema": schema,
+            },
+        },
+        timeout=120)
+    r.raise_for_status()
+    parts = r.json()["candidates"][0]["content"]["parts"]
+    return "".join(p.get("text", "") for p in parts)
+
+
 def _stub_score(lead, enrichment):
     """Deterministic test double. Keyword-based, no LLM. Never used in production."""
     text = " ".join(str(lead.get(k, "")) for k in
@@ -122,11 +187,15 @@ def _stub_score(lead, enrichment):
 
 
 def score_lead(lead, enrichment=None, provider=None):
-    provider = provider or os.environ.get("LLM_PROVIDER", "ollama")
+    provider = provider or os.environ.get("LLM_PROVIDER", "gemini")
     if provider == "stub":
         return _stub_score(lead, enrichment)
     prompt = build_scoring_prompt(lead, enrichment)
-    if provider == "ollama":
+    if provider == "gemini":
+        raw = _call_gemini(prompt, os.environ["GEMINI_API_KEY"],
+                           os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
+                           _SCORING_SCHEMA)
+    elif provider == "ollama":
         raw = _call_ollama(prompt,
                            os.environ.get("OLLAMA_URL", "http://ollama:11434"),
                            os.environ.get("SCORING_MODEL", "llama3.2:3b"))
@@ -144,13 +213,17 @@ def score_lead(lead, enrichment=None, provider=None):
 
 def llm_infer_enrichment(message, provider=None):
     """Fallback enrichment: infer firmographics from free text. Confidence capped."""
-    provider = provider or os.environ.get("LLM_PROVIDER", "ollama")
+    provider = provider or os.environ.get("LLM_PROVIDER", "gemini")
     prompt = (load_enrichment_prompt() + "\n\n---\n## Lead message\n" + (message or ""))
     if provider == "stub":
         return {"company_name": "unknown", "industry": "unknown",
                 "size_bucket": "unknown", "confidence": 0.0,
                 "basis": "stub provider", "source": "llm_inference"}
-    if provider == "ollama":
+    if provider == "gemini":
+        raw = _call_gemini(prompt, os.environ["GEMINI_API_KEY"],
+                           os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
+                           _ENRICHMENT_SCHEMA)
+    elif provider == "ollama":
         raw = _call_ollama(prompt, os.environ.get("OLLAMA_URL", "http://ollama:11434"),
                            os.environ.get("SCORING_MODEL", "llama3.2:3b"))
     elif provider == "openai":

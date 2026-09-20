@@ -9,8 +9,10 @@
 #          http://localhost:5000/dashboard  (ops dashboard)
 #          http://localhost:5678/          (n8n editor — admin / N8N_PASSWORD)
 #
-# The live demo costs $0: scoring runs on the local Ollama model.
+# The live demo costs $0: scoring runs on the Gemini free-tier API
+# (GEMINI_API_KEY in .env — get one free at aistudio.google.com).
 # For client deployments, set LLM_PROVIDER=openai|anthropic + API key instead.
+# Self-hosted option: LLM_PROVIDER=ollama with your own Ollama server.
 
 services:
   postgres:
@@ -30,33 +32,12 @@ services:
       timeout: 5s
       retries: 10
 
-  ollama:
-    image: ollama/ollama:latest
-    container_name: leadqualifier-ollama
-    volumes:
-      - lq-ollama:/root/.ollama
-    # CPU inference is fine for the demo; add `deploy.resources.reservations.devices`
-    # for GPU hosts.
-
-  ollama-setup:
-    image: ollama/ollama:latest
-    depends_on:
-      ollama:
-        condition: service_started
-    environment:
-      OLLAMA_HOST: http://ollama:11434
-    entrypoint: ["/bin/sh", "-c"]
-    # Pull once; skips quickly if the model already exists.
-    command: ["ollama pull ${SCORING_MODEL:-llama3.2:3b}"]
-
   companion:
     build: ./companion
     container_name: leadqualifier-companion
     depends_on:
       postgres:
         condition: service_healthy
-      ollama-setup:
-        condition: service_completed_successfully
     volumes:
       - ./prompts:/prompts:ro
     environment:
@@ -65,7 +46,9 @@ services:
       N8N_INTAKE_URL: http://n8n:5678/webhook/lead-intake
       N8N_DECISION_URL: http://n8n:5678/webhook/approval-decision
       OLLAMA_URL: http://ollama:11434
-      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
       SCORING_MODEL: ${SCORING_MODEL:-llama3.2:3b}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
@@ -130,5 +113,4 @@ services:
 
 volumes:
   lq-pgdata:
-  lq-ollama:
   lq-n8n:

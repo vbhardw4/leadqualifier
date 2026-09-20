@@ -57,7 +57,10 @@ services:
         condition: service_healthy
       ollama-setup:
         condition: service_completed_successfully
+    volumes:
+      - ./prompts:/prompts:ro
     environment:
+      PROMPTS_DIR: /prompts
       DATABASE_URL: postgresql://${POSTGRES_USER:-leadqualifier}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-leadqualifier}
       N8N_INTAKE_URL: http://n8n:5678/webhook/lead-intake
       N8N_DECISION_URL: http://n8n:5678/webhook/approval-decision
